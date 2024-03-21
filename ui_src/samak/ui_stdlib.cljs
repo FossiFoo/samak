@@ -1,8 +1,9 @@
 (ns samak.ui-stdlib
-  (:require [expound.alpha      :as expound]
+  (:require ["react-dom/client" :refer [createRoot]]
+            [expound.alpha      :as expound]
             [clojure.string     :as str]
             [clojure.spec.alpha :as s]
-            [reagent.dom       :as r]
+            [reagent.core       :as r]
             [samak.pipes        :as pipes]
             [samak.trace        :as trace]
             [samak.transduction-tools :as tt]
@@ -117,7 +118,7 @@
 (defn render-cb
   ""
   [n node]
-  (r/render (get @content n) node)
+  (.render node (r/as-element (get @content n)))
   (swap! content dissoc n))
 
 (defn render
@@ -134,25 +135,26 @@
    (let [ui-in (chan (a/sliding-buffer 1))
          ui-out (chan (a/sliding-buffer 1000))
          init (atom true)]
-     (go-loop []
-       (when-some [i (<! ui-in)]
-         ;; (println "ui-in" i)
-         ;; (trace/trace ::ui 0 i)
-         (let [x (or (:samak.pipes/content i) i)]
-           (if true ;; (s/valid? ::hiccup x)
-             (when-let [node (js/document.getElementById (str "samak" n))]
-               ;; (when (= 1 n))
-               ;; (.warn js/console (str "render " n " - ") x)
-               (render n node x events ui-out))
-             (.warn js/console (str "invalid " n " - " (expound/expound-str ::hiccup x) "for" x))))
-         ;; (when @init
-         ;;   (reset! init false)
-         ;;   (put-meta! ui-out
-         ;;              {:data :resize
-         ;;               :width (.-clientWidth (.-documentElement js/document))
-         ;;               :height (.-clientHeight (.-documentElement js/document))}
-         ;;              ::view))
-         (recur)))
+     (when-let [node (js/document.getElementById (str "samak" n))]
+       (let [root (createRoot node)]
+         (go-loop []
+           (when-some [i (<! ui-in)]
+             ;; (println "ui-in" i)
+             ;; (trace/trace ::ui 0 i)
+             (let [x (or (:samak.pipes/content i) i)]
+               (if true ;; (s/valid? ::hiccup x)
+                   ;; (when (= 1 n))
+                   ;; (.warn js/console (str "render " n " - ") x)
+                   (render n root x events ui-out)
+                 (.warn js/console (str "invalid " n " - " (expound/expound-str ::hiccup x) "for" x))))
+             ;; (when @init
+             ;;   (reset! init false)
+             ;;   (put-meta! ui-out
+             ;;              {:data :resize
+             ;;               :width (.-clientWidth (.-documentElement js/document))
+             ;;               :height (.-clientHeight (.-documentElement js/document))}
+             ;;              ::view))
+             (recur)))))
      ;; (set! (.-onresize js/window)
      ;;       (fn [e] (do (println "uires")(put-meta! ui-out (let [event (js->clj e :keywordize-keys true)]
      ;;                                       {:data :resize

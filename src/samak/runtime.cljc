@@ -309,7 +309,7 @@
   (js-debugger)
 
   (p/let [defns (load-by-id rt id)]
-    (println "defns:" defns)
+    ;; (println "defns:" defns)
     (load-def-from-bundle rt id defns)))
 
 
