@@ -242,7 +242,9 @@
 
 (defn store-and-eval!
   [{store :store server :server :as rt} tx-records ctx]
+  (println "!!!!!!!!!!1in" tx-records)
   (p/let [asts (store! store tx-records)]
+    (println "!!!!!!!!!!1out" asts)
     (eval-all server asts ctx)))
 
 (defn load-by-sym
@@ -306,8 +308,6 @@
 (defn load-bundle
   "loads the definition of a bundle by the given id"
   [rt id]
-  (js-debugger)
-
   (p/let [defns (load-by-id rt id)]
     ;; (println "defns:" defns)
     (load-def-from-bundle rt id defns)))

@@ -113,8 +113,8 @@
 (defn debounce
   ""
   [f]
-  #?(:cljs (goog.async.nextTick #(p/handle (f) (fn [x err] (println "$$$ resolved with:" x err))))
-     :clj (p=then (f) #(println "$$$ resolved:" %))))
+  #?(:cljs (goog.async.nextTick #(p/do (f)))
+     :clj (p/do (f))))
 
 (defn str-to-int [s]
   #?(:clj (try (Integer/parseInt s) (catch Exception e nil))

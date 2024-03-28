@@ -107,6 +107,7 @@
 ;;   (pipes/link! (eval-node from) (eval-node to)))
 
 (defn eval-env [manager builtins ast {db-id :db-id ctx :ctx}]
+  (println "@@@@@@@@@@@ ast" ast)
   (binding [*manager* manager
             *builtins* builtins
             *db-id* db-id
