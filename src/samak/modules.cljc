@@ -21,7 +21,7 @@
           net (reduce (fn [a, v]
                         (let [val (vals v)]
                           {:nodes (into (:nodes a) (flatten [(map :xf val) (map :ends val)]))
-                           :pipes (into (:pipes a) (map :db/id (flatten (map :pipes val))))
+                           :pipes (into (:pipes a) (map :samak.nodes/id (flatten (map :pipes val))))
                            }))
                       {:nodes (into [] (:roots mod))
                        :pipes []}

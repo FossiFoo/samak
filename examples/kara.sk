@@ -55,7 +55,7 @@
                                           (conj :-state :-next)
                                           (reverse _)
                                           (take 5 _))
-                                      []))
+                                      [""]))
 
 (| (trace-in {}) hack-trace trac)
 (| trac collect-traces)

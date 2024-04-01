@@ -10,6 +10,7 @@
                  ;; [ring/ring-core "1.9.5"]
                  [org.clojure/core.async "1.6.681"]
                  ;; ;; [org.clojure/core.logic "1.0.1"]
+                 [io.replikativ/hasch "0.3.94"]
                  [datascript "1.6.3"]
                  [com.stuartsierra/dependency "1.0.0"]
                  [net.cgrand/xforms "0.19.2"]

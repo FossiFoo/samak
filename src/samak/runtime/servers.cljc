@@ -17,21 +17,22 @@
   (load-builtins [this builtins])
   (unload [this ids]))
 
-
 (defrecord LocalSamakServer [defined-ids builtins manager]
   SamakServer
-  (eval-ast [this {:keys [db/id] :as ast} ctx]
-    ;; (println "eval <-" (str ctx "/" id) ast)
+  (eval-ast [this ast ctx]
+    (println "eval <-" (str ctx "/" (:db/id ast)) ast)
     (let [defs (atom (get-defined this))
           man (merge (get this :manager)
                      {:resolve (fn [x] (let [val (or (get @defs (str ctx "/" x)) (get @defs (str "/" x)))]
-                                         ;; (println "res <-" (str ctx "/" x) val)
+                                         (println "res <-" (str ctx "/" x) val)
                                          val))
-                      :register (fn [did def]
-                                  ;; (println "reg ->" (str ctx "/" did) def)
-                                  (swap! defs assoc (str ctx "/" did) def))})
-          def (n/eval-env man builtins ast {:db-id id :ctx ctx})]
-      (swap! defs assoc (str ctx "/" id) def)
+                      :register (fn [db-id samak-id def]
+                                  (println "reg ->" (str ctx "/" db-id "/" samak-id) def)
+                                  (swap! defs merge {(str ctx "/" db-id) def
+                                                     (str ctx "/" samak-id) def}))})
+          def (n/eval-env man builtins ast {:db-id (:db/id ast) :ctx ctx})]
+      (swap! defs assoc (str ctx "/" (:db/id ast)) def)
+      (swap! defs assoc (str ctx "/" (:samak.nodes/id ast)) def)
       ;; (println "eval ->" (str ctx "/" id) def)
       (assoc this :defined-ids @defs)))
   (get-defined [this]
