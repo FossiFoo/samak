@@ -2,7 +2,10 @@
   (:require [datascript.core :as d]
             [clojure.walk    :as w]))
 
-(def schema #:samak.nodes {:arguments     {:db/isComponent true
+(def schema #:samak.nodes {:meta          {:db/isComponent true
+                                           :db/valueType   :db.type/ref
+                                           :db/cardinality :db.cardinality/many}
+                           :arguments     {:db/isComponent true
                                            :db/valueType   :db.type/ref
                                            :db/cardinality :db.cardinality/many}
                            :fn            {:db/valueType   :db.type/ref
@@ -29,6 +32,7 @@
                                            :db/valueType   :db.type/ref}
                            :to            {:db/isComponent true
                                            :db/valueType   :db.type/ref}
+                           :id            {:db/unique :db.unique/identity}
                            :name          {:db/unique :db.unique/identity}
                            :module-name   {:db/unique :db.unique/identity}
                            :node          {:db/isComponent true
@@ -78,7 +82,7 @@
   "Loads an ast given by its entity id from the database.
    Will not resolve refs automatically."
   [db id]
-  (d/pull @db '[*] id))
+  (d/pull @db '[*] [:samak.nodes/id id]))
 
 
 (defn load-defs
@@ -99,8 +103,8 @@
   "loads an ast given by its entity id from the database"
   [db id]
   (w/postwalk (fn [form]
-                (if-let [sub-id (when (and (map? form) (= (keys form) [:db/id]))
-                                  (:db/id form))]
+                (if-let [sub-id (when (and (map? form) (= (keys form) [:samak.nodes/id]))
+                                  (:samak.nodes/id form))]
                   (load-recurse db sub-id)
                  form))
               (load-by-id db id)))
@@ -108,10 +112,11 @@
 (defn resolve-name
   "Returns the db id for a given name"
   [db sym]
-  (d/q '[:find ?e .
+  (d/q '[:find ?id .
          :in $ ?sym
          :where
-         [?e :samak.nodes/name ?sym]]
+         [?e :samak.nodes/name ?sym]
+         [?e :samak.nodes/id ?id]]
        @db
        sym))
 
@@ -144,8 +149,8 @@
 (defn get-id-from-pipe
   ""
   [pipe]
-  (or (get-in pipe [:samak.nodes/fn :db/id])
-      (get-in pipe [:samak.nodes/fn-expression :samak.nodes/fn :db/id])))
+  (or (get-in pipe [:samak.nodes/fn :samak.nodes/id])
+      (get-in pipe [:samak.nodes/fn-expression :samak.nodes/fn :samak.nodes/id])))
 
 
 (defn load-travel
@@ -154,7 +159,7 @@
   (if (contains? loaded id)
     {}
     (let [ast (load-by-id db id)
-          subs (mapv :db/id (find-links-from db id))
+          subs (mapv :samak.nodes/id (find-links-from db id))
           pipes (mapv #(load-by-id db %1) subs)
           targets (mapv #(get-id-from-pipe (:samak.nodes/to %)) pipes)
           xf (mapv #(get-id-from-pipe (:samak.nodes/xf %)) pipes)

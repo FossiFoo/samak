@@ -1,14 +1,16 @@
 (ns samak.api
   (:refer-clojure :exclude [vector map symbol keyword float])
-  (:require [samak.tools :as tools]))
+  (:require [samak.tools :as tools]
+            [samak.helpers :as helpers]))
 
 (defn literal [literal-name body]
   #:samak.nodes{:type  (tools/qualify-kw "samak.nodes" literal-name)
                 :value body})
 
 (defn builtin [identifier]
-  (assoc (literal 'builtin identifier)
-         :name identifier))
+  (merge (literal 'builtin identifier)
+         #:samak.nodes{:name identifier
+                       :id (helpers/uuid identifier)}))
 
 (def keyword (partial literal 'keyword))
 (def key-fn  (partial literal 'key-fn))
@@ -22,7 +24,7 @@
 
 (defn id-ref [identifier]
   #:samak.nodes{:type :samak.nodes/fn-ref
-                :fn   {:db/id identifier}})
+                :fn   {:samak.nodes/id identifier}})
 
 (defn pipe
   ([from to]

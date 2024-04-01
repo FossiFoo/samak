@@ -16,7 +16,7 @@
   (fail ["[" *db-id* "]"] args))
 
 
-(defmulti eval-node ::type)
+(defmulti eval-node #(do (println %) (::type %)))
 
 (defn eval-reordered [nodes]
   (->> nodes
@@ -26,7 +26,7 @@
 (def eval-vals (partial map (fn [[k v]] [(::value k) (eval-node v)])))
 
 (defn ref? [m]
-  (and (map? m) (= (keys m) [:db/id])))
+  (and (map? m) (= (keys m) [:samak.nodes/id])))
 
 (defn unresolved-name? [value]
   (and (vector? value)
@@ -37,7 +37,7 @@
   (cond
     (unresolved-name? value) (compile-error "Tried to eval unresolved name:"
                                    (str  "'" (second value) "'"))
-    (ref? value)             (let [id (:db/id value)]
+    (ref? value)             (let [id (:samak.nodes/id value)]
                                (or ((:resolve *manager*) id)
                                    (compile-error "Referenced id " id " was undefined")))
     :default                 (compile-error "unknown token during evaluation: " (str "type: " (or (type value) "nil") " with value: " (str value)))))
@@ -67,10 +67,11 @@
 
 (defmethod eval-node ::def [{:keys [::rhs] :as fn}]
   (let [res (eval-node rhs)
-        id (:db/id fn)]
-    (when-let [r (:register *manager*)] (r id res))
+        db-id (:db/id fn)
+        samak-id (:samak.nodes/id fn)]
+    (when-let [r (:register *manager*)] (r db-id samak-id res))
     (if (instance? clojure.lang.IObj res)
-      (with-meta res {::id id})
+      (with-meta res {::id samak-id :db/id db-id})
       res)))
 
 (defmethod eval-node ::pipe [{:keys [::from ::to ::xf] :as p}]
@@ -78,21 +79,22 @@
   (let [a (eval-node from)
         b (eval-node to)
         c (when xf
-            (let [db-id (:db/id xf)]
+            (let [db-id (:samak.nodes/id xf)]
               (binding [*db-id* db-id]
                 (eval-node xf))))]
-    ((:link *manager*) a b c (:db/id xf))))
+    ((:link *manager*) a b c (:samak.nodes/id xf))))
 
 (defmethod eval-node ::fn-ref [{:keys [::fn] :as f}]
-  (or ((:resolve *manager*) (:db/id fn))
+  (or ((:resolve *manager*) (:samak.nodes/id fn))
+      ((:resolve *manager*) (:db/id fn))
       (when (api/is-def? fn)
         (let [res (eval-node fn)]
-          ;; (println "evaling" (:db/id fn) "->" res "def" fn)
-          (with-meta res {::id (:db/id fn)})))
+          ;; (println "evaling" (:samak.nodes/id fn) "->" res "def" fn)
+          (with-meta res {::id (:samak.nodes/id fn)})))
       ;; (when (api/is-module? fn)
       ;;   (let [res (eval-node fn)]
-      ;;     (println "evaling" (:db/id fn) "->" res "mod" fn) res))
-      (println "type:" (::type fn) (:db/id fn))
+      ;;     (println "evaling" (:samak.nodes/id fn) "->" res "mod" fn) res))
+      (println "type:" (::type fn) (:samak.nodes/id fn))
       (compile-error "Undefined reference for evaling " *db-id* " fn " fn)))
 
 (defmethod eval-node ::fn-call [{:keys [::fn-expression ::arguments]}]

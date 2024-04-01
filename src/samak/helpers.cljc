@@ -4,6 +4,7 @@
    [(:refer-clojure :exclude [uuid])
     (:require
      [promesa.core :as p]
+     [hasch.core :as hasch]
      [clojure.walk :as w]
      [clojure.data.json :as json]
      [clj-time.core :as time]
@@ -13,6 +14,7 @@
    [(:refer-clojure :exclude [uuid])
     (:require
      [goog.async.nextTick]
+     [hasch.core :as hasch]
      [promesa.core :as p]
      [clojure.walk :as w]
      [cljs-time.core :as time]
@@ -74,12 +76,10 @@
   [a b]
   (time/before? a b))
 
-
 (defn uuid
   "Return a random UUID."
-  []
-  #?(:clj  (java.util.UUID/randomUUID)
-     :cljs (random-uuid)))
+  ([] (hasch/uuid))
+  ([x] (hasch/uuid x)))
 
 (defn hex
   []

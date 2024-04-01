@@ -4,7 +4,7 @@
    [(:require
      [clojure.core.async :as a :refer [<! >! chan go go-loop close! put!]]
      [promesa.core :as p]
-     [samak.runtime.stores  :as stores]
+      [samak.runtime.stores  :as stores]
      [samak.runtime.servers :as servers]
      [samak.helpers :as helpers]
      [samak.tools :refer [fail log]]
@@ -39,7 +39,7 @@
 (defn eval-all
   [server forms ctx]
   (reduce (fn [server form]
-            ;; (println "form" (:db/id form) "->" form)
+            ;; (println "form" (:samak.nodes/id form) "->" form)
             (servers/eval-ast server form ctx))
           server forms))
 
@@ -55,8 +55,8 @@
   "loads an ast given by its entity id from the database"
   [rt id]
   (helpers/ppostwalk (fn [form]
-                       (if-let [sub-id (when (and (map? form) (= (keys form) [:db/id]))
-                                         (:db/id form))]
+                       (if-let [sub-id (when (and (map? form) (= (keys form) [:samak.nodes/id]))
+                                         (:samak.nodes/id form))]
                          (load-by-id rt sub-id)
                          form))
                      (load-by-id rt id)))
@@ -146,13 +146,13 @@
     (println "inst mod ->" id ctx)
     (if c
       (fn []
-        (println "return stub for" n "[" (:db/id module) "] -> " c)
+        (println "return stub for" n "[" (:samak.nodes/id module) "] -> " c)
         c)
       (do (println  (str "### about to eval module: " id module))
           (let [ns-reg #(do (println "ns reg ->" id %1 %2) ((:register man) (str id "/" %1) %2))
                 ns-res #(do (println "ns res ->" id %1) (or ((:resolve man) (str id "/" %1)) ((:resolve man) %1)))
                 ns-man (merge man {:register ns-reg :resolve ns-res})
-                evaled (n/eval-env ns-man nil definition {:db-id (:db/id module) :ctx id})] ;;;FIXME should be server/eval-ast?
+                evaled (n/eval-env ns-man nil definition {:db-id (:samak.nodes/id module) :ctx id})] ;;;FIXME should be server/eval-ast?
             (fn [a]
               ;; FIXME
               ;; needs to prep resolve magic when instanciating pipes, to select same runtime
@@ -160,6 +160,25 @@
               ;; (if (:config man))
               (println "### used module: " ctx "/" n "/" a "---" module "->" evaled)
               evaled))))))
+
+;; This covers the ::n/def case as well
+(defn ast->tx-records [ast]
+  (println "ast-rewrite " ast)
+  (let [m {:samak.nodes/name (:samak.nodes/name ast)}
+        meta (into {} (filter (comp some? val)) m)]
+  [(merge ast {:db/id -1
+               :samak.nodes/id (helpers/uuid ast)
+               :samak.nodes/meta meta})]))
+
+;; Applying the transformation and wrap network
+
+;; (defn wrap-network [network-name forms]
+;;   (map (partial api/network network-name) forms))
+
+(defn rewrite-expression [network-name form]
+  (->> form
+       ast->tx-records
+       #_(wrap-network network-name)))
 
 (defn make-store-internal
   ""
@@ -199,6 +218,7 @@
    (p/let [prep (make-runtime-internal scheduler conf builtins)
            runtime (update prep :server servers/load-builtins! builtins)
            build-in-names (p/all (map #(p/do! %1) (map (partial resolve-name runtime) (keys builtins))))
+           _ (println "@@@@@@@@@@@@@@2" build-in-names)
            asts (p/all (map (partial load-by-id runtime) build-in-names))]
      (update runtime :server eval-all asts ""))))
 
@@ -210,31 +230,20 @@
 
 ;; Toplevel code transformation
 
-;; This covers the ::n/def case as well
-(defn ast->tx-records [ast]
-  [(assoc ast :db/id -1)])
-
-;; Applying the transformation and wrap network
-
-;; (defn wrap-network [network-name forms]
-;;   (map (partial api/network network-name) forms))
-
-(defn rewrite-expression [network-name form]
-  (->> form
-       ast->tx-records
-       #_(wrap-network network-name)))
-
 ;; Evaluation - Dumb and without dependency resolution for now
 
 (defn persist-to-ids!
   ""
   [store tx-records]
-  (stores/persist-tree! store tx-records))
+  (let [ids (map :samak.nodes/id tx-records)]
+    (stores/persist-tree! store tx-records)
+    ids))
 
 
 (defn store!
   [store tx-records]
-  (p/let [ids (persist-to-ids! store tx-records)]
+  (p/let [ids (persist-to-ids! store tx-records)
+          _ (println "!!!!!!!!!!!!!1ids" ids)]
     (p/all (map (partial stores/load-by-id store) ids))))
 
 (defn store-and-eval!
@@ -258,7 +267,7 @@
   [entry]
   (let [val (:samak.nodes/mapvalue entry)
         fn (if (:samak.nodes/fn-expression val) (:samak.nodes/fn-expression val) val)]
-    (get-in fn [:samak.nodes/fn :db/id])))
+    (get-in fn [:samak.nodes/fn :samak.nodes/id])))
 
 
 (defn get-ids-from-source-def
