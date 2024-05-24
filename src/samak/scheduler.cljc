@@ -40,7 +40,7 @@
   ""
   [rt id sym ctx]
   (let [_ (println "run-module" sym id)
-        exp [(assoc (api/fn-call {:db/id id} [(api/string "test")]) :db/id sym)]]
+        exp [(merge (api/fn-call {:samak.nodes/id id :db/id id} [(api/string "test")]) {:samak.nodes/id sym :db/id sym})]]
     (println "run-module2" exp)
     (reset! rt (update @rt :server run/eval-all exp ctx))))
 

@@ -106,7 +106,7 @@
         (prom/let [parsed (parse-samak-string input)
                    prt (prom/resolved {:rt runtime :cnt 0})
                    red (reduce (fn [rt exp] (prom/handle rt (fn [res err] (when err (throw err))
-                                                              (prom/let [rt (run/eval-expression! (:rt res) exp :repl)]
+                                                              (prom/let [rt (run/eval-expression! (:rt res) [exp] :repl)]
                                                                 {:rt rt :cnt (inc (:cnt res))}))))
                                prt parsed)
                    new (:rt red)]

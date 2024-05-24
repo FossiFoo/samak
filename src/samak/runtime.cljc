@@ -4,7 +4,7 @@
    [(:require
      [clojure.core.async :as a :refer [<! >! chan go go-loop close! put!]]
      [promesa.core :as p]
-      [samak.runtime.stores  :as stores]
+     [samak.runtime.stores  :as stores]
      [samak.runtime.servers :as servers]
      [samak.helpers :as helpers]
      [samak.tools :refer [fail log]]
@@ -57,9 +57,11 @@
   "loads an ast given by its entity id from the database"
   [rt id]
   (helpers/ppostwalk (fn [form]
-                       (if-let [sub-id (when (and (map? form) (= (keys form) [:samak.nodes/id]))
-                                         (:samak.nodes/id form))]
-                         (load-by-id rt sub-id)
+                       (if-let [sub-id (when (and (map? form) (some #(= % (keys form)) [:db/id :samak.nodes/id]))
+                                         (or (:samak.nodes/id form) (:db/id form)))]
+                         (do
+                           (println "SUB" sub-id)
+                         (load-by-id rt sub-id))
                          form))
                      (load-by-id rt id)))
 
@@ -165,12 +167,11 @@
 
 ;; This covers the ::n/def case as well
 (defn ast->tx-records [ast]
-  (println "ast-rewrite " ast)
   (let [m {:samak.nodes/name (:samak.nodes/name ast)}
         meta (into {} (filter (comp some? val)) m)]
-  [(merge ast {:db/id -1
-               :samak.nodes/id (helpers/uuid ast)
-               :samak.nodes/meta meta})]))
+    (merge ast {:db/id -1
+                :samak.nodes/id (helpers/uuid ast)
+                :samak.nodes/meta2 meta})))
 
 ;; Applying the transformation and wrap network
 
@@ -189,7 +190,7 @@
     (stores/make-piped-store (:id conf) inbound broadcast)
     (let [store (stores/make-local-store (:id conf))]
       (stores/load-builtins! store (keys builtins))
-      (stores/serve-store store inbound broadcast))))
+      (stores/serve-store store inbound broadcast (:id conf)))))
 
 
 (defn make-runtime-internal
@@ -221,7 +222,6 @@
    (p/let [prep (make-runtime-internal scheduler conf builtins)
            runtime (update prep :server servers/load-builtins! builtins)
            build-in-names (p/all (map #(p/do! %1) (map (partial resolve-name runtime) (keys builtins))))
-           _ (println "@@@@@@@@@@@@@@2" build-in-names)
            asts (p/all (map (partial load-by-id runtime) build-in-names))]
      (update runtime :server eval-all asts ""))))
 
@@ -271,8 +271,9 @@
 (defn get-id-from-source-val
   [entry]
   (let [val (:samak.nodes/mapvalue entry)
-        fn (if (:samak.nodes/fn-expression val) (:samak.nodes/fn-expression val) val)]
-    (get-in fn [:samak.nodes/fn :samak.nodes/id])))
+        fn-exp (if (:samak.nodes/fn-expression val) (:samak.nodes/fn-expression val) val)
+        fn (:samak.nodes/fn fn-exp)]
+    (or (:samak.nodes/id fn) (:db/id fn))))
 
 
 (defn get-ids-from-source-def
@@ -291,6 +292,7 @@
                  (:samak.nodes/rhs defns)
                  (:samak.nodes/definition defns))
           kvs (:samak.nodes/mapkv-pairs defs)
+          _ (println (:id rt) "defs" defs)
           sources (get-ids-from-source-def kvs #{:sources})
           source-ids (apply sorted-set (map get-id-from-source-val sources))
           _ (println "### source-ids:" source-ids)
@@ -318,7 +320,7 @@
   "loads the definition of a bundle by the given id"
   [rt id]
   (p/let [defns (load-by-id rt id)]
-    ;; (println "defns:" defns)
+    (println "defns:" defns)
     (load-def-from-bundle rt id defns)))
 
 
@@ -326,7 +328,7 @@
   (when form
       (do
         ;; (println "eval exp" form ctx rt)
-        (p/let [new-server (store-and-eval! rt (rewrite-expression "user" form) ctx)]
+        (p/let [new-server (store-and-eval! rt (map (partial rewrite-expression "user") form) ctx)]
     (assoc rt :server new-server)))))
 
 (defn get-definition-by-id [runtime id]

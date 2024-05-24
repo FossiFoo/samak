@@ -75,8 +75,8 @@
   (try
     (d/transact! db tree)
     (catch #?(:clj java.lang.RuntimeException :cljs js/Error) ex
-      (println "db could not persist" tree)
-      (println ex))))
+      (println "db could not persist" ex)
+      (println "db could not persist" tree))))
 
 (defn load-by-id
   "Loads an ast given by its entity id from the database.

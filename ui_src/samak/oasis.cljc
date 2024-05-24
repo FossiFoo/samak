@@ -7,7 +7,9 @@
      [samak.code-db :as db]
      [samak.nodes :as n]
      [samak.pipes :as pipes]
-     [samak.runtime.stores :as stores]
+     [promesa.core :as p]
+     [samak.runtime :as run]
+     [samak.runtime.stores  :as stores]
      samak.spec
      [samak.stdlib :as std])]
    :cljs
@@ -17,7 +19,9 @@
      [samak.code-db :as db]
      [samak.nodes :as n]
      [samak.pipes :as pipes]
-     [samak.runtime.stores :as stores]
+     [promesa.core :as p]
+     [samak.runtime :as run]
+     [samak.runtime.stores  :as stores]
      samak.spec
      [samak.stdlib :as std])]))
 
@@ -4101,8 +4105,13 @@
 (defn start []
   (into oasis (flatten network)))
 
+;; (defn store [s]
+;;   (stores/persist-tree! s (map run/ oasis))
+;;   (stores/persist-tree! s (flatten network))
+;;   s)
+
 (defn store [s]
-  (println oasis)
-  (stores/persist-tree! s oasis)
-  (stores/persist-tree! s (flatten network))
-  s)
+  (p/do! (run/store! s (map (partial run/rewrite-expression "oasis") oasis))
+         (stores/persist-tree! s (flatten network))
+         ;; (run/store! s (flatten network))
+         s))

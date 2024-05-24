@@ -15,7 +15,8 @@
   (fail ["[" *db-id* "]"] args))
 
 
-(defmulti eval-node #(do (println %) (::type %)))
+(defmulti eval-node #(do ;; (println %)
+                         (::type %)))
 
 (defn eval-reordered [nodes]
   (->> nodes
@@ -68,7 +69,7 @@
     (when-let [r (:register *manager*)] (r db-id samak-id res))
     #?(:cljs res
        :clj (if (instance? clojure.lang.IObj res)
-              (with-meta res {::id samak-id :db/id db-id})
+              (with-meta res {::id samak-id :db-id db-id})
               res))))
 
 (defmethod eval-node ::pipe [{:keys [::from ::to ::xf] :as p}]
@@ -109,7 +110,6 @@
 ;;   (pipes/link! (eval-node from) (eval-node to)))
 
 (defn eval-env [manager builtins ast {db-id :db-id ctx :ctx}]
-  (println "@@@@@@@@@@@ ast" ast)
   (binding [*manager* manager
             *builtins* builtins
             *db-id* db-id
