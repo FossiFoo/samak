@@ -1,6 +1,7 @@
 (ns dev.core
   (:require [cljsjs.react]
             [clojure.core.async :as a :refer [<! >! chan close! put!]]
+            [cljs-http.client :as http]
             [cognitect.transit :as t]
             [metosin.transit.dates :as d]
             [promesa.core :as p]
@@ -59,6 +60,17 @@
         :bootstrap (put! to-worker :init)
         (put! to-main data)))))
 
+(defn handle-broadcasts [from-main to-worker to-main]
+  (let [c (chan)]
+    (a/tap from-main c)
+    (go-loop []
+      (let [p (<! c)]
+        (put! to-worker p)
+        (when (= (:samak.runtime/type p) :samak.runtime/store)
+          (let [res (<! (http/post "/api" {:transit-params p}))]
+            (println "got back" res)
+            (put! to-main (t/read json-reader (:body res))))))
+      (recur))))
 
 (defn init
   ""
@@ -70,7 +82,7 @@
           in-worker (chan)
           in-preview (chan)
           loading (chan)]
-    (a/tap out-mult in-worker)
+    (handle-broadcasts out-mult in-worker in-main)
     (render/start-render-runtime loading in-main out-main)
     (let [w (js/Worker. "/shadowcljs/js/oasis-out/worker.js")]
       (handle-send w in-worker)

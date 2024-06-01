@@ -6,8 +6,7 @@
               [clojure.edn   :as edn]
               [samak.code-db :as db]
               [samak.api     :as api]
-              [samak.pipes  :as pipes]
-              [clojure.core.async :as a])]
+              [samak.pipes  :as pipes])]
    :cljs
    [(:require [promesa.core :as p]
               [clojure.core.async    :as a :refer [<! >! put! chan close!]]
@@ -42,7 +41,6 @@
 
 (defrecord RemoteSamakStore [db in out counter rt-id]
   SamakStore
-
   (persist-tree! [_ tree]
     (let [prom (p/deferred)
           id (swap! counter inc)
@@ -78,7 +76,7 @@
           id (swap! counter inc)
           c (chan)]
       (a/tap (pipes/out-port in) c)
-      ;; (println "request net" id "-" net-id)
+      (println "request net" id "-" net-id)
       (put! (pipes/in-port out) {:samak.runtime/type :samak.runtime/store :cmd :load-network :args {:id id :net-id net-id}})
       (go-loop [] ;;FIXME timeouts leak
         (when-let [i (<! c)]
@@ -99,7 +97,7 @@
         (go-loop [] ;;FIXME timeouts leak
           (when-let [i (<! c)]
             (when (and (= (:cmd i) :resolve-name) (= (:id (:args i)) id))
-              (println rt-id "req resolve in" id "-" i)
+              (println rt-id "req resolve in" id "-" db-name "-" i)
               (let [res (:ids (:args i))]
                 (swap! resolve-cache assoc db-name res)
                 (p/resolve! prom res)))
@@ -109,37 +107,35 @@
 (defn serve-store
   ""
   [store in out rt-id]
-  (let [c (chan)]
-    (a/tap (pipes/out-port in) c)
-    (go-loop []
-      (when-let [i (<! c)]
-        ;; (println "serve" i (:cmd i))
-        (when (= :samak.runtime/store (:samak.runtime/type i))
-          (condp = (:cmd i)
-            :persist-tree
-            (p/then (persist-tree! store (:tree (:args i)))
-                    (fn [ids]
-                      (println rt-id "result persist" ids)
-                      (put! (pipes/in-port out) {:cmd :persist-tree :args {:id (:id (:args i)) :ids ids}})))
-            :load-by-id
-            (p/then (load-by-id store (:db-id (:args i)))
-                    (fn [ast]
-                      (if (nil? ast)
-                        (println rt-id "result load not found for" (:db-id (:args i)))
-                        (println rt-id "result load" ast))
-                      (put! (pipes/in-port out) {:cmd :load-by-id :args {:id (:id (:args i)) :ast ast}})))
-            :load-network
-            (p/then (load-network store (:net-id (:args i)))
-                    (fn [net]
-                      (println rt-id "result net" net)
-                      (put! (pipes/in-port out) {:cmd :load-network :args {:id (:id (:args i)) :net net}})))
-            :resolve-name
-            (p/then (resolve-name store (:db-name (:args i)))
-                    (fn [ids]
-                      (println rt-id "result resolve" (:db-name (:args i)) ids)
-                      (put! (pipes/in-port out) {:cmd :resolve-name :args {:id (:id (:args i)) :ids ids}})))
-            (let [msg (str "unknown store command: " i)] (println msg) (p/rejected msg))))
-        (recur))))
+  (go-loop []
+    (when-let [i (<! in)]
+      (println rt-id "serve" i (:cmd i))
+      (when (= :samak.runtime/store (:samak.runtime/type i))
+        (condp = (:cmd i)
+          :persist-tree
+          (p/then (persist-tree! store (:tree (:args i)))
+                  (fn [ids]
+                    (println rt-id "result persist" ids)
+                    (put! out {:cmd :persist-tree :args {:id (:id (:args i)) :ids ids}})))
+          :load-by-id
+          (p/then (load-by-id store (:db-id (:args i)))
+                  (fn [ast]
+                    ;; (if (nil? ast)
+                    ;;   (println rt-id "result load not found for" (:db-id (:args i)))
+                    ;;   (println rt-id "result load" ast))
+                    (put! out {:cmd :load-by-id :args {:id (:id (:args i)) :ast ast}})))
+          :load-network
+          (p/then (load-network store (:net-id (:args i)))
+                  (fn [net]
+                    (println rt-id "result net" net)
+                    (put! out {:cmd :load-network :args {:id (:id (:args i)) :net net}})))
+          :resolve-name
+          (p/then (resolve-name store (:db-name (:args i)))
+                  (fn [ids]
+                    (println rt-id "result resolve" (:db-name (:args i)) ids)
+                    (put! out {:cmd :resolve-name :args {:id (:id (:args i)) :ids ids}})))
+          (let [msg (str "unknown store command: " i)] (println msg) (p/rejected msg))))
+      (recur)))
   store)
 
 

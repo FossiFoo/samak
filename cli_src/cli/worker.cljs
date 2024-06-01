@@ -2,7 +2,6 @@
   (:require [cljs.nodejs :as nodejs]
             [clojure.core.async :as a :refer [<! >! chan close! put!]]
             [cognitect.transit :as t]
-            [cljs.reader :as edn]
             [metosin.transit.dates :as d]
             [samak.helpers :as helpers]
             [samak.worker :as worker])

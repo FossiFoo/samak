@@ -68,7 +68,7 @@
                (accept [this gauge] (.record gauge (double (f)))))))
 
 (defn init-metrics []
-  #?(:clj (try (let [c (chan)
+  #?(:clj (try (let [c (chan (a/sliding-buffer 1024))
                      m (mult c)
                      r (-> (reify-chan-exporter c)
                            (PeriodicMetricReader/builder)

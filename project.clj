@@ -1,18 +1,22 @@
 (defproject samak "0.1.0-SNAPSHOT"
   :license {:name "The MIT License"
             :url  "https://opensource.org/licenses/MIT"}
-  :source-paths ["src" "ui_src" "handler_src"]
+  :source-paths ["src" "ui_src" "handler_src" "cli_src"]
   :description "A hello world application for electron"
   :dependencies [[io.replikativ/hasch "0.3.94"]
                  [datascript "1.6.3"]
                  [com.stuartsierra/dependency "1.0.0"]
                  [net.cgrand/xforms "0.19.2"]
                  [funcool/promesa "10.0.594"]
+                 [com.cognitect/transit-clj "1.0.333"]
 
+                 [ring/ring-core "1.12.1"]
+                 [joda-time/joda-time "2.9.3"]
                  [org.clojure/clojure "1.11.2"]
                  [org.clojure/clojurescript "1.11.132"]
                  [org.clojure/data.json "2.5.0"]
                  [org.clojure/core.async "1.6.681"]
+                 [http-kit "2.3.0"]
                  [clj-http "3.12.3"]
                  [clj-time "0.15.2"]
                  [clojure-lanterna "0.9.7"]

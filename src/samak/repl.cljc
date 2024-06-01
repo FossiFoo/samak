@@ -15,6 +15,7 @@
      [samak.tools :as t]
      [samak.trace :as trace]
      [samak.core :as core]
+     [samak.emit :as emit]
      [samak.runtime.servers :as servers])]
    :cljs
    [(:require
@@ -37,16 +38,17 @@
 (def ^:dynamic *default-timeout* 0)
 (def config {:tracer {:backend :none}})
 
-;; (def trace (atom (trace/init-tracer rt (:tracer config))))
+(def out-pipe (atom nil))
 
-(defn init [rt-inst]
-  (prom/do!
-   (caravan/init rt-inst)
-   rt-inst))
+(defn output [& x]
+  (let [o @out-pipe]
+    (if (nil? o)
+      (println x)
+      (put! o (apply str x)))))
 
 (defn catch-errors [ast]
   (if-let [error (:error ast)]
-    (println "There was a parse error: " error)
+    (output "There was a parse error: " error)
     (:value ast)))
 
 (defn parse-samak-string [s]
@@ -65,9 +67,9 @@
   [runtime pipe-name event]
   (prom/let [arg (edn/read-string event)
              res (run/fire-into-named-pipe runtime :repl (symbol pipe-name) arg *default-timeout*)]
-    ;; (println "###fire" pipe-name event)
+    ;; (output "###fire" pipe-name event)
     (if (:error res)
-      (println (:error res)))))
+      (output (:error res)))))
 
 (def repl-prefixes
   {\f (fn [in rt] (let [[pipe-name event] (str/split in #" " 2)]
@@ -76,10 +78,17 @@
                                              :server
                                              servers/get-defined
                                              t/pretty)]
-                                  (println "Defined symbols:\n" p)
+                                  (output "Defined symbols:\n" p)
                                   p)))
-   \l (fn [_ rt] (prom/resolved (let [l (run/links rt)] (run! println l) l)))
-   \p (fn [in _] (prom/resolved (let [s (parse-samak-string in)] (println s) s)))})
+   \q (fn [in rt] (prom/let [id (run/resolve-name rt (symbol in))
+                             res (run/load-ast rt (or id in))]
+                    (if res
+                      (do
+                        (output res)
+                        (output (emit/emit res)))
+                      (output "unknown: " in))))
+   \l (fn [_ rt] (prom/resolved (let [l (run/links rt)] (run! output l) l)))
+   \p (fn [in _] (prom/resolved (let [s (parse-samak-string in)] (output s) s)))})
 
 (defn run-repl-cmd [s rt]
   (let [[_ dispatch & rst] s]
@@ -88,8 +97,6 @@
         (repl-cmd (->> rst (apply str) str/trim) rt)
         (prom/rejected (ex-info (str "no valid command: " s) {}))))))
 
-(def foo (atom 1))
-
 (defn eval-line
   "Evals some input line in the context of the defined symbols,
   and returns a new map of symbols"
@@ -97,12 +104,11 @@
   (if (= "" (str/trim input))
     runtime
     (do
-      (println "line" input (or (:id runtime) runtime))
+      ;; (output "line" input (or (:id runtime) runtime))
       (condp #(str/starts-with? %2 %1) input
         "!" (prom/let [a (run-repl-cmd input runtime)]
-              (println "repl" a)
               (prom/resolved runtime))
-        ";" (do (println "ignored:" input) (prom/resolved runtime))
+        ";" (do (output "ignored:" input) (prom/resolved runtime))
         (prom/let [parsed (parse-samak-string input)
                    prt (prom/resolved {:rt runtime :cnt 0})
                    red (reduce (fn [rt exp] (prom/handle rt (fn [res err] (when err (throw err))
@@ -110,7 +116,7 @@
                                                                 {:rt rt :cnt (inc (:cnt res))}))))
                                prt parsed)
                    new (:rt red)]
-          ;; (println "resolved" new)
+          ;; (output "resolved" new)
           (prom/resolved new))))))
 
 (defn special-line? [line]
@@ -125,10 +131,12 @@
 
 (defn eval-lines [lines runtime]
   (prom/let [rt runtime
-             evals (reduce (fn [rt exp] (prom/handle rt (fn [res err] (if err (do (println err)(throw err)) (eval-line exp res))))) (prom/resolved rt) (group-repl-cmds lines))]
+             evals (reduce (fn [rt exp] (prom/handle rt (fn [res err] (if err (do (output err) (throw err)) (eval-line exp res))))) (prom/resolved rt) (group-repl-cmds lines))]
     evals))
 
-(defn init [rt args]
+(defn init [rt out args]
   (prom/let [init? (run/get-definition-by-name rt :repl 'init)]
+    (caravan/init rt)
+    (reset! out-pipe out)
     (when init?
       (fire-event-into-named-pipe rt 'init args))))

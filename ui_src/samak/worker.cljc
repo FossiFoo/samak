@@ -69,8 +69,8 @@
   (let [broadcast (pipes/pipe (chan) ::worker-broadcast)
         to-rt (pipes/pipe (chan) ::worker-scheduler)]
     (println "sched")
-    ;; (handle-update "out" broadcast)
-    ;; (handle-update "in" to-rt)
+    (handle-update "outw" broadcast)
+    (handle-update "inw" to-rt)
     (fn [] [to-rt broadcast])))
 
 (def rt (atom {}))

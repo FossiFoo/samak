@@ -1,5 +1,4 @@
-(ns samak.main
-  (:gen-class)
+(ns samak.cli-repl
   (:import com.googlecode.lanterna.screen.Screen
            com.googlecode.lanterna.input.Key
            com.googlecode.lanterna.terminal.Terminal)
@@ -21,6 +20,25 @@
             [samak.halef    :as halef]
             [samak.emit     :as emit]
             [samak.repl     :as repl]))
+
+
+(defn handle-update
+  ""
+  [msg pipe]
+  (let [c (chan)]
+    (a/tap (pipes/out-port pipe) c)
+    (go-loop []
+      (let [p (<! c)]
+        (println "got" msg p))
+      (recur))))
+
+(def scheduler
+  (let [broadcast (pipes/pipe (chan) ::worker-broadcast)
+        to-rt (pipes/pipe (chan) ::worker-scheduler)]
+    (println "sched")
+    ;; (handle-update "out" broadcast)
+    ;; (handle-update "in" to-rt)
+    (fn [] [to-rt broadcast])))
 
 (def run (atom true))
 (def dirty-chan (chan))
@@ -101,6 +119,14 @@
       (put! dirty-chan true)
     (recur)))
 
+(defn out-loop [out-chan history dirty-chan]
+  (go-loop []
+    (let [line (<! out-chan)]
+      (let [strs (str/split (str "out: " line) #"\n")]
+        (swap! history #(vec (concat % strs)))))
+      (put! dirty-chan true)
+    (recur)))
+
 (defn make-debugger [debug-chan]
   (fn [{:keys [:samak.conveyor/from :samak.conveyor/to :samak.conveyor/msg] :as call}]
     (let [d (prom/deferred)]
@@ -173,57 +199,70 @@
         (put! draw-plain-chan (draw-log-only @log))
         (if @run (recur res input))))))
 
-(defn -main [filename & args]
+(defn start! [[to-store from-store] filename & args]
   (do
     (try
-      (let [exit-repl-chan (a/promise-chan)
-            exit-debug-chan (a/promise-chan)
-            exit-plain-chan (a/promise-chan)
-            log-chan (chan 100)
-            draw-repl-chan (chan (a/sliding-buffer 1))
-            draw-plain-chan (chan (a/sliding-buffer 1))
-            draw-debug-chan (chan (a/sliding-buffer 1))
-            key-repl-chan (chan 100)
-            key-debug-chan (chan 100)
-            dirty-chan (chan (a/sliding-buffer 1))
-            debug-chan (chan)
-            int-ch (chan 100)
-            trac (mult int-ch)
-            history (atom [])
-            log (atom [])
-            prompt (atom "Have a cookie")
-            ]
-        (-> (prom/let [runtime (rt/make-runtime cli-symbols)
-                       debugger (make-debugger debug-chan)
-                       _ (caravan/init rt)
-                       _ (trace/init-tracer rt {:backend :samak :chan int-ch})
-                       _ (std/init log-chan)
-                       met (metrics/init-metrics)
-                       _ (halef/init trac met)
-                       lines (some-> filename
-                                     slurp
-                                     str/split-lines)
-                       res (when lines
-                             (let [res (repl/eval-lines lines runtime)]
-                               (run! #(swap! history conj (str "loaded: " %)) lines)
-                               res))
-                       _ (repl/init res (if args (str args) "[]"))]
-              (reset! rt res)
-              (println (:server @rt))
-              (log-loop log-chan log dirty-chan)
-              (main-loop res draw-repl-chan key-repl-chan draw-plain-chan dirty-chan history log prompt)
-              (debug-loop res debug-chan key-debug-chan draw-debug-chan)
-              (put! draw-plain-chan (draw-log-only @log))
-              (put! draw-repl-chan (draw-repl "" @history @log @prompt))
-              (put! draw-debug-chan (draw-debug ["none"] "init"))
-              (term/add-screen draw-plain-chan key-repl-chan exit-plain-chan)
-              (term/add-screen draw-debug-chan key-debug-chan exit-debug-chan)
-              (term/add-screen draw-repl-chan key-repl-chan exit-repl-chan)
-              )
-            (prom/catch #(println "ERROR" %)))
-        (while @run
-          (Thread/sleep 100))
-        (put! exit-repl-chan true)
-        (put! exit-debug-chan true)
-        (put! exit-plain-chan true))
-      (catch RuntimeException ex (println ex)))))
+      (let [[to-rt broadcast] (scheduler)
+            out-c (chan)
+            in-c (chan)]
+        (a/tap (pipes/out-port broadcast) out-c)
+        (a/tap (pipes/out-port from-store) in-c)
+        (a/pipeline 1 (pipes/in-port to-store) identity ;; (map #(do (println "broadcast->to-store" %) %))
+                    out-c)
+        (a/pipeline 1 (pipes/in-port to-rt) identity ;; (map #(do (println "store->rt" %) %))
+                    in-c)
+        (let [exit-repl-chan (a/promise-chan)
+              exit-debug-chan (a/promise-chan)
+              exit-plain-chan (a/promise-chan)
+              log-chan (chan 100)
+              draw-repl-chan (chan (a/sliding-buffer 1))
+              draw-plain-chan (chan (a/sliding-buffer 1))
+              draw-debug-chan (chan (a/sliding-buffer 1))
+              key-repl-chan (chan 100)
+              key-debug-chan (chan 100)
+              dirty-chan (chan (a/sliding-buffer 1))
+              debug-chan (chan)
+              int-ch (chan 100)
+              trac (mult int-ch)
+              history (atom [])
+              log (atom [])
+              out-chan (chan 100)
+              prompt (atom "Have a cookie")
+              ]
+          (-> (prom/let [runtime (rt/make-runtime cli-symbols scheduler {:store :remote :id "rt-repl"})
+                         debugger (make-debugger debug-chan)
+                         _ (trace/init-tracer runtime {:backend :samak :chan int-ch})
+                         _ (std/init log-chan)
+                         met (metrics/init-metrics)
+                         _ (halef/init trac met)
+                         lines (some-> filename
+                                       slurp
+                                       str/split-lines)
+                         res (if lines
+                               (let [res (repl/eval-lines lines runtime)]
+                                 (run! #(swap! history conj (str "loaded: " %)) lines)
+                                 res)
+                               runtime)
+                         _ (repl/init res out-chan (if args (str args) "[]"))]
+                (reset! rt res)
+                ;; (println (:server @rt))
+                (out-loop out-chan history dirty-chan)
+                (log-loop log-chan log dirty-chan)
+                (main-loop res draw-repl-chan key-repl-chan draw-plain-chan dirty-chan history log prompt)
+                (debug-loop res debug-chan key-debug-chan draw-debug-chan)
+                (put! draw-plain-chan (draw-log-only @log))
+                (put! draw-repl-chan (draw-repl "" @history @log @prompt))
+                (put! draw-debug-chan (draw-debug ["none"] "init"))
+                (term/add-screen draw-plain-chan key-repl-chan exit-plain-chan)
+                (term/add-screen draw-debug-chan key-debug-chan exit-debug-chan)
+                (term/add-screen draw-repl-chan key-repl-chan exit-repl-chan)
+                )
+              (prom/catch #(println "ERROR" %)))
+          (let [counter (atom 0)]
+            (while @run
+              (println "running..." (float (/ (swap! counter inc) 10)))
+              (Thread/sleep 100)))
+          (put! exit-repl-chan true)
+          (put! exit-debug-chan true)
+          (put! exit-plain-chan true)))
+      (catch RuntimeException ex (println "RuntimeException" ex)))))

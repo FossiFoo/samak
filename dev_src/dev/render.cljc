@@ -60,6 +60,7 @@
 (def tracer (atom {}))
 
 (def main-conf {:id "rt-main"
+                :store :remote
                 :modules {"oasis-core" {:depends {}
                                         :sinks {:state (sched/make-pipe-id {:module :lone :type :sinks :name :state})}
                                         :sources {
@@ -89,8 +90,8 @@
   (let [broadcast (pipes/pipe (chan) ::main-broadcast)
         to-rt (pipes/pipe (chan) ::main-scheduler)]
     (println "sched")
-    ;; (handle-update "out" broadcast)
-    ;; (handle-update "in" to-rt)
+    (handle-update "outr" broadcast)
+    (handle-update "inr" to-rt)
     (fn [] [to-rt broadcast])))
 
 ;; (def scheduler2
@@ -195,12 +196,13 @@
 (defn start-render-runtime
   ""
   [load in out]
-  (prom/let [rt-inst (run/make-runtime renderer-symbols scheduler main-conf)]
-    (reset! rt rt-inst)
-    (println "persisting oasis")
-    (oasis/store (:store @rt))
-    (println "persist done")
-    (pipes/link! (:broadcast @rt) (pipes/sink out))
-    (pipes/link! (pipes/source in) (:scheduler @rt))
-    (reset! tracer (trace/init-tracer @rt (:tracer config)))
-    (println "renderer started runtime" (:id @rt))))
+  (let [[to-rt from-rt] (scheduler)]
+    (pipes/link! from-rt (pipes/sink out))
+    (pipes/link! (pipes/source in) to-rt)
+    (prom/let [rt-inst (run/make-runtime renderer-symbols scheduler main-conf)]
+      (reset! rt rt-inst)
+      (println "persisting oasis")
+      (oasis/store (:store @rt))
+      (println "persist done")
+      (reset! tracer (trace/init-tracer @rt (:tracer config)))
+      (println "renderer started runtime" (:id @rt)))))

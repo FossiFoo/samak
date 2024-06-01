@@ -5,6 +5,7 @@
   [com.stuartsierra/dependency "1.0.0"]
   [net.cgrand/xforms "0.19.2"]
   [funcool/promesa "10.0.594"]
+  [com.cognitect/transit-cljs "0.8.280"]
 
   [org.clojure/core.logic "1.0.1"]
   [reagent "1.2.0"]
@@ -19,6 +20,9 @@
   [clj-time "0.15.2"]]
 
  :source-paths ["src" "ui_src" "dev_src" "handler_src"]
+ :dev-http {8000
+            {:root "resources/public"
+             :proxy-url "http://localhost:8888"}}
  :builds
  {:dev {:target     :browser
         :output-dir "resources/public/shadowcljs/js"

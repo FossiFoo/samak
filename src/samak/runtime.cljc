@@ -57,11 +57,12 @@
   "loads an ast given by its entity id from the database"
   [rt id]
   (helpers/ppostwalk (fn [form]
+                       (println "FORM" id form)
                        (if-let [sub-id (when (and (map? form) (some #(= % (keys form)) [:db/id :samak.nodes/id]))
                                          (or (:samak.nodes/id form) (:db/id form)))]
                          (do
                            (println "SUB" sub-id)
-                         (load-by-id rt sub-id))
+                           (load-by-id rt sub-id))
                          form))
                      (load-by-id rt id)))
 
@@ -188,9 +189,11 @@
   [conf inbound broadcast builtins]
   (if (:store conf)
     (stores/make-piped-store (:id conf) inbound broadcast)
-    (let [store (stores/make-local-store (:id conf))]
+    (let [store (stores/make-local-store (:id conf))
+          in-c (chan)]
+      (a/tap (pipes/out-port inbound) in-c)
       (stores/load-builtins! store (keys builtins))
-      (stores/serve-store store inbound broadcast (:id conf)))))
+      (stores/serve-store store in-c (pipes/in-port broadcast) (:id conf)))))
 
 
 (defn make-runtime-internal
@@ -341,6 +344,10 @@
     (println "id" id)
     (get-definition-by-id runtime (str ctx "/" id))))
 
+(defn get-definition-by [runtime ctx in]
+  (p/let [id (resolve-name runtime in)]
+    (println "id" id)
+    (get-definition-by-id runtime (str ctx "/" (or id in)))))
 
 (defn fire-into-named-pipe
   ""
