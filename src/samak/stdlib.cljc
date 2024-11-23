@@ -18,7 +18,7 @@
    :cljs
    [(:require
      [clojure.spec.alpha :as s]
-     [cljs-http.client :as http]
+     ;; [cljs-http.client :as http]
      [cljs.core.async :as a :refer [<! put! chan close!]]
      [clojure.string :as str]
      [samak.pipes :as pipes]

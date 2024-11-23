@@ -11,10 +11,14 @@
               [samak.builtins :as builtins]
               [samak.stdlib   :as std]
               [samak.terminal :as term]
+              [samak.helpers :as helpers]
               [samak.halef :as halef]
-              ;; [samak.caravan  :as caravan]
+              [samak.caravan  :as caravan]
               [samak.runtime.stores :as stores]
-              [samak.pipes :as pipes])
+              [samak.pipes :as pipes]
+              [samak.packet :as packet]
+              ;; [samak.oasis :as oasis]
+              )
     (:import java.io.ByteArrayOutputStream)]
    :cljs
    [(:require [promesa.core :as p]
@@ -23,14 +27,27 @@
               [samak.pipes :as pipes])
     (:require-macros [cljs.core.async.macros :refer [go go-loop]])]))
 
+(def layout-mock-symbols
+  {'pipes/layout :blank})
+
+(def ui-mock-symbols
+  {'modules/ui :blank
+   'pipes/ui :blank
+   'pipes/events :blank
+   'pipes/mouse :blank
+   'pipes/keyboard :blank})
+
 (def builtins
   (merge builtins/samak-symbols
          std/pipe-symbols
          halef/samak-symbols
-         term/samak-symbols))
+         term/samak-symbols
+         ui-mock-symbols
+         layout-mock-symbols
+         caravan/symbols))
 
 (def store (atom nil))
-(def out-chan (atom (chan)))
+(def out-chan (atom (chan 100)))
 (def c (atom [(pipes/sink (chan)) (pipes/source @out-chan)]))
 
 (defn transit-out [data]
@@ -47,26 +64,28 @@
       (let [[in out] @c
             from-store (chan)
             raw-bod (:body ring-request)
-            bod (when raw-bod (t/read (t/reader raw-bod :json)))
-            id (:id (:args bod))]
-        (println "root in:" id bod (type bod) (:args bod))
+            bod (when raw-bod (t/read (t/reader raw-bod :json)))]
+        (println "root in:" bod (type bod))
         (if (nil? bod)
           (http/send! channel {:status 404})
-          (do
+          (let [id (packet/get-id bod)
+                packet (packet/assert-type-content :samak.runtime/store bod)]
             (a/tap (pipes/out-port out) from-store)
             (go-loop []
               (when-let [i (<! from-store)]
                 (println "root got" i)
-                (if (and (= (:cmd i) :resolve-name) (= (:id (:args i)) id))
+                (if (= (packet/get-id i) id)
                   (do
                     (println "root req resolve in" id "-" i)
-                    (http/send! channel (transit-out i)))
+                    (http/send! channel (transit-out i))
+                    (a/untap (pipes/out-port out) from-store))
                   (recur))))
             (put! (pipes/in-port in) bod)))))))
 
 (defn start! [& args]
   (reset! store (stores/make-local-store "root"))
   (stores/load-builtins! @store (keys builtins))
+  ;; (oasis/store @store)
   (let [[in out] @c]
     (stores/serve-store @store (pipes/in-port in) @out-chan "root")
     (http/run-server async-handler {:port 8888})

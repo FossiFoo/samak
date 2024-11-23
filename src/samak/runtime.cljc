@@ -44,7 +44,9 @@
           server forms))
 
 (defn resolve-name [runtime sym]
-  (-> runtime :store (stores/resolve-name sym)))
+  (p/let [n (-> runtime :store (stores/resolve-name sym))]
+    (println (:id runtime) " sym " sym " -> " n)
+    n))
 
 (defn load-by-id
   ""
@@ -224,7 +226,10 @@
   ([builtins scheduler conf]
    (p/let [prep (make-runtime-internal scheduler conf builtins)
            runtime (update prep :server servers/load-builtins! builtins)
-           build-in-names (p/all (map #(p/do! %1) (map (partial resolve-name runtime) (keys builtins))))
+           proms (doall (map #(p/do! %) (map (partial resolve-name runtime) (keys builtins))))
+           ;; _ (println "proms: " proms)
+           build-in-names (p/all proms)
+           ;; _ (println "names" build-in-names)
            asts (p/all (map (partial load-by-id runtime) build-in-names))]
      (update runtime :server eval-all asts ""))))
 
@@ -263,7 +268,8 @@
   ""
   [rt sym]
   (p/let [ref (resolve-name rt sym)]
-    (when ref
+    (if (nil? ref)
+      (fail (:id rt) "failed to load " sym)
       (load-by-id rt ref))))
 
 (defn load-network

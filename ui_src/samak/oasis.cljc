@@ -4111,7 +4111,7 @@
 ;;   s)
 
 (defn store [s]
-  (p/do! (run/store! s (map (partial run/rewrite-expression "oasis") oasis))
+  (p/do! (run/store! s (map (partial run/rewrite-expression "oasis") oasis1))
          (stores/persist-tree! s (flatten network))
          ;; (run/store! s (flatten network))
          s))

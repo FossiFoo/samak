@@ -7,6 +7,7 @@
             [promesa.core :as p]
             [dev.render :as render]
             [samak.runtime :as run]
+            [samak.packet :as packet]
             [samak.helpers :as helpers]
             [samak.builtins :as builtins])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
@@ -58,18 +59,27 @@
       (condp = (:target data)
         :load (put! load (:data data))
         :bootstrap (put! to-worker :init)
-        (put! to-main data)))))
+        (if (= (:samak.runtime/type data) :samak.runtime/store)
+          (go-loop []
+            (let [res (<! (http/post "/api" {:transit-params data}))
+                  b (:body res)]
+              (if (= 200 (:status res))
+                (put! to-worker (t/read json-reader (:body res)))
+                (recur))))
+          (put! to-main data))))))
 
 (defn handle-broadcasts [from-main to-worker to-main]
   (let [c (chan)]
     (a/tap from-main c)
     (go-loop []
       (let [p (<! c)]
-        (put! to-worker p)
-        (when (= (:samak.runtime/type p) :samak.runtime/store)
-          (let [res (<! (http/post "/api" {:transit-params p}))]
-            (println "got back" res)
-            (put! to-main (t/read json-reader (:body res))))))
+        ;; (println "broadcast" p (packet/get-type p))
+        (condp = (packet/get-type p)
+          :samak.runtime/store (let [res (<! (http/post "/api" {:transit-params p}))]
+                                 (if (= (:status res) 200)
+                                   (put! to-main (t/read json-reader (:body res)))
+                                   (put! to-main (packet/make-error :samak.runtime/store (str "error:" res)))))
+          (put! to-worker p)))
       (recur))))
 
 (defn init

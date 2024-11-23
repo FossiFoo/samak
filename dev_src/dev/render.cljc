@@ -90,8 +90,8 @@
   (let [broadcast (pipes/pipe (chan) ::main-broadcast)
         to-rt (pipes/pipe (chan) ::main-scheduler)]
     (println "sched")
-    (handle-update "outr" broadcast)
-    (handle-update "inr" to-rt)
+    ;; (handle-update "outr" broadcast)
+    ;; (handle-update "inr" to-rt)
     (fn [] [to-rt broadcast])))
 
 ;; (def scheduler2
@@ -202,7 +202,7 @@
     (prom/let [rt-inst (run/make-runtime renderer-symbols scheduler main-conf)]
       (reset! rt rt-inst)
       (println "persisting oasis")
-      (oasis/store (:store @rt))
+      ;; (oasis/store (:store @rt))
       (println "persist done")
       (reset! tracer (trace/init-tracer @rt (:tracer config)))
       (println "renderer started runtime" (:id @rt)))))

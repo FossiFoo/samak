@@ -6,17 +6,20 @@
               [clojure.edn   :as edn]
               [samak.code-db :as db]
               [samak.api     :as api]
-              [samak.pipes  :as pipes])]
+              [samak.pipes  :as pipes]
+              [samak.packet :as packet])]
    :cljs
    [(:require [promesa.core :as p]
               [clojure.core.async    :as a :refer [<! >! put! chan close!]]
               [cljs.reader :as edn]
               [samak.code-db :as db]
               [samak.api :as api]
-              [samak.pipes :as pipes])
+              [samak.pipes :as pipes]
+              [samak.packet :as packet])
     (:require-macros [cljs.core.async.macros :refer [go go-loop]])]))
 
 (defprotocol SamakStore
+  (init [this])
   (persist-tree! [this tree])
   (load-by-id [this id])
   (load-network [this id])
@@ -24,6 +27,7 @@
 
 (defrecord LocalSamakStore [db rt-id]
   SamakStore
+  (init [_])
   (persist-tree! [_ tree]
     (p/resolved
      (-> (db/parse-tree->db! db tree)
@@ -39,102 +43,86 @@
 
 (def resolve-cache (atom {}))
 
-(defrecord RemoteSamakStore [db in out counter rt-id]
+(defn fetch [{rt-id :rt-id cb :cb out :out} c f]
+  (let [prom (p/deferred)
+        p (packet/make-packet :samak.runtime/store c)
+        id (packet/get-id p)]
+    (swap! cb assoc id prom)
+    (put! (pipes/in-port out) p)
+    (p/then prom f)))
+
+(defrecord RemoteSamakStore [db in out counter cb rt-id]
   SamakStore
-  (persist-tree! [_ tree]
-    (let [prom (p/deferred)
-          id (swap! counter inc)
-          c (chan)]
-      (a/tap (pipes/out-port in) c)
-      (println rt-id "req persist" id "-" tree)
-      (put! (pipes/in-port out) {:samak.runtime/type :samak.runtime/store :cmd :persist-tree :args {:id id :tree tree}})
-      (go-loop [] ;;FIXME timeouts leak
-        (when-let [i (<! c)]
-          (if (and (= (:cmd i) :persist-tree) (= (:id (:args i)) id))
-            (do
-              (a/untap (pipes/out-port in) c)
-              (p/resolve! prom (:ids (:args i))))
-            (recur))))
-      prom))
+  (persist-tree! [this tree]
+    (fetch this
+         {:cmd :persist-tree :args {:tree tree}}
+         #(:ids (:args %))))
 
-  (load-by-id [_ db-id]
-    (let [prom (p/deferred)
-          id (swap! counter inc)
-          c (chan)]
-        (a/tap (pipes/out-port in) c)
-      (println rt-id "req load" id "-" db-id)
-      (put! (pipes/in-port out) {:samak.runtime/type :samak.runtime/store :cmd :load-by-id :args {:id id :db-id db-id}})
-      (go-loop [] ;;FIXME timeouts leak
-        (when-let [i (<! c)]
-          (when (and (= (:cmd i) :load-by-id) (= (:id (:args i)) id))
-            (p/resolve! prom (:ast (:args i))))
-          (recur)))
-      prom))
+  (load-by-id [this db-id]
+    (fetch this
+         {:cmd :load-by-id :args {:db-id db-id}}
+         #(:ast (:args %))))
 
-  (load-network [_ net-id]
-    (let [prom (p/deferred)
-          id (swap! counter inc)
-          c (chan)]
-      (a/tap (pipes/out-port in) c)
-      (println "request net" id "-" net-id)
-      (put! (pipes/in-port out) {:samak.runtime/type :samak.runtime/store :cmd :load-network :args {:id id :net-id net-id}})
-      (go-loop [] ;;FIXME timeouts leak
-        (when-let [i (<! c)]
-          (when (and (= (:cmd i) :load-network) (= (:id (:args i)) id))
-            (p/resolve! prom (:net (:args i))))
-          (recur)))
-      prom))
+  (load-network [this net-id]
+    (fetch this
+         {:cmd :load-network :args {:net-id net-id}}
+         #(:net (:args %))))
 
-  (resolve-name [_ db-name]
+  (resolve-name [this db-name]
     (if-let [e (find @resolve-cache db-name)]
-      (val e)
-      (let [prom (p/deferred)
-            id (swap! counter inc)
-            c (chan)]
-        (a/tap (pipes/out-port in) c)
-        (println rt-id "req resolve" id "-" db-name)
-        (put! (pipes/in-port out) {:samak.runtime/type :samak.runtime/store :cmd :resolve-name :args {:id id :db-name db-name}})
-        (go-loop [] ;;FIXME timeouts leak
-          (when-let [i (<! c)]
-            (when (and (= (:cmd i) :resolve-name) (= (:id (:args i)) id))
-              (println rt-id "req resolve in" id "-" db-name "-" i)
-              (let [res (:ids (:args i))]
-                (swap! resolve-cache assoc db-name res)
-                (p/resolve! prom res)))
-            (recur)))
-        prom))))
+      (p/resolved (val e))
+      (fetch this
+           {:cmd :resolve-name :args {:db-name db-name}}
+           #(let [res (:ids (:args %))]
+              (swap! resolve-cache assoc db-name res)
+              res))))
+
+  (init [_]
+    (let [c (chan)]
+      (a/tap (pipes/out-port in) c)
+      (go-loop []
+        (let [m (<! c)]
+          (if (nil? m)
+            (a/untap (pipes/out-port in) c)
+            (do
+              (when-let [prom (get @cb (packet/get-id m))]
+                (let [res (packet/assert-type-content :samak.runtime/store m)]
+                  (p/resolve! prom res)))
+              (recur))))))))
+
 
 (defn serve-store
   ""
   [store in out rt-id]
   (go-loop []
-    (when-let [i (<! in)]
-      (println rt-id "serve" i (:cmd i))
-      (when (= :samak.runtime/store (:samak.runtime/type i))
+    (when-let [m (<! in)]
+      ;; (println (str rt-id " serve " m))
+      (let [id (packet/get-id m)
+            i (packet/assert-type-content :samak.runtime/store m)]
         (condp = (:cmd i)
           :persist-tree
           (p/then (persist-tree! store (:tree (:args i)))
                   (fn [ids]
                     (println rt-id "result persist" ids)
-                    (put! out {:cmd :persist-tree :args {:id (:id (:args i)) :ids ids}})))
+                    (put! out (packet/make-packet id (:ok packet/status) :samak.runtime/store {:cmd :persist-tree :args {:id id :ids ids}}))))
           :load-by-id
           (p/then (load-by-id store (:db-id (:args i)))
                   (fn [ast]
                     ;; (if (nil? ast)
                     ;;   (println rt-id "result load not found for" (:db-id (:args i)))
                     ;;   (println rt-id "result load" ast))
-                    (put! out {:cmd :load-by-id :args {:id (:id (:args i)) :ast ast}})))
+                    (put! out (packet/make-packet id (:ok packet/status) :samak.runtime/store {:cmd :load-by-id :args {:id id :ast ast}}))))
           :load-network
           (p/then (load-network store (:net-id (:args i)))
                   (fn [net]
                     (println rt-id "result net" net)
-                    (put! out {:cmd :load-network :args {:id (:id (:args i)) :net net}})))
+                    (put! out (packet/make-packet id (:ok packet/status) :samak.runtime/store {:cmd :load-network :args {:id id :net net}}))))
           :resolve-name
           (p/then (resolve-name store (:db-name (:args i)))
                   (fn [ids]
                     (println rt-id "result resolve" (:db-name (:args i)) ids)
-                    (put! out {:cmd :resolve-name :args {:id (:id (:args i)) :ids ids}})))
-          (let [msg (str "unknown store command: " i)] (println msg) (p/rejected msg))))
+                    (put! out (packet/make-packet id (:ok packet/status) :samak.runtime/store {:cmd :resolve-name :args {:ids ids}}))))
+          (let [msg (str "unknown store command: " i)] (println msg) (p/rejected (ex-info msg {})))))
       (recur)))
   store)
 
@@ -148,4 +136,6 @@
 (defn make-piped-store
   ""
   [id in out]
-  (RemoteSamakStore. (db/create-empty-db) in out (atom 0) id))
+  (let [s (RemoteSamakStore. (db/create-empty-db) in out (atom 0) (atom {}) id)]
+    (init s)
+    s))
