@@ -72,30 +72,41 @@
       (output (:error res)))))
 
 (def repl-prefixes
-  {\f (fn [in rt] (let [[pipe-name event] (str/split in #" " 2)]
-                        (fire-event-into-named-pipe rt pipe-name event)))
-   \e (fn [_ rt] (prom/resolved (let [p (->> rt
-                                             :server
-                                             servers/get-defined
-                                             t/pretty)]
-                                  (output "Defined symbols:\n" p)
-                                  p)))
-   \q (fn [in rt] (prom/let [id (run/resolve-name rt (symbol in))
-                             res (run/load-ast rt (or id in))]
-                    (if res
-                      (do
-                        (output res)
-                        (output (emit/emit res)))
-                      (output "unknown: " in))))
-   \l (fn [_ rt] (prom/resolved (let [l (run/links rt)] (run! output l) l)))
-   \p (fn [in _] (prom/resolved (let [s (parse-samak-string in)] (output s) s)))})
+  {\h ["Prints help on available commands"
+       (fn [in _]
+         (output "Available commands:\n")
+         (doall (map #(output (str "  " (first %) ": " (first (second %)))) repl-prefixes))
+         (prom/resolved nil))]
+   \f ["Fires an event into the given pipe"
+       (fn [in rt] (let [[pipe-name event] (str/split in #" " 2)]
+                     (fire-event-into-named-pipe rt pipe-name event)))]
+   \e ["List all defined symbols"
+       (fn [_ rt] (prom/resolved (let [p (->> rt
+                                              :server
+                                              servers/get-defined
+                                              t/pretty)]
+                                   (output "Defined symbols:\n" p)
+                                   (println "sym " p)
+                                   p)))]
+   \q ["Load and print the given symbol or id"
+       (fn [in rt] (prom/let [id (run/resolve-name rt (symbol in))
+                              res (run/load-ast rt (or id in))]
+                     (if res
+                       (do
+                         (output res)
+                         (output (emit/emit res)))
+                       (output "unknown: " in))))]
+   \l ["List all existing links"
+       (fn [_ rt] (prom/resolved (let [l (run/links rt)] (run! output l) l)))]
+   \p ["Parse the given samak expression"
+       (fn [in _] (prom/resolved (let [s (parse-samak-string in)] (output s) s)))]})
 
 (defn run-repl-cmd [s rt]
   (let [[_ dispatch & rst] s]
     (let [repl-cmd (repl-prefixes dispatch)]
       (if repl-cmd
-        (repl-cmd (->> rst (apply str) str/trim) rt)
-        (prom/rejected (ex-info (str "no valid command: " s) {}))))))
+        ((second repl-cmd) (->> rst (apply str) str/trim) rt)
+        (prom/rejected (ex-info (str "no valid command, see !h for help: " s) {}))))))
 
 (defn eval-line
   "Evals some input line in the context of the defined symbols,

@@ -124,16 +124,26 @@
   ""
   [inner outer form]
   (cond
-    (p/promise? form) (p/then form #(w/walk inner outer form))
-    (list? form) (outer (apply list (p/do! (map inner form))))
-    (seq? form) (outer (p/do! (map inner form)))
-    (coll? form) (outer (into (empty form) (p/do! (map inner form))))
-    :else (w/walk inner outer form)))
+    (list? form) (do (println "list")(outer (apply list (map inner form))))
+    (seq? form) (do (println "seq")(outer (map inner form)))
+    (coll? form) (do (println "col")(outer (into (empty form) (map inner form))))
+    :else (do (println "else")(outer form))))
+
+(defn pwalk2
+  [inner outer form]
+  (cond
+    (list? form) (outer (with-meta (apply list (map inner form)) (meta form)))
+    (instance? clojure.lang.IMapEntry form) (outer (clojure.lang.MapEntry/create (inner (key form)) (inner (val form))))
+    (seq? form) (outer (with-meta (doall (map inner form)) (meta form)))
+    (instance? clojure.lang.IRecord form) (outer (reduce (fn [r x] (conj r (inner x))) form form))
+    (coll? form) (outer (into (empty form) (map inner form)))
+    :else (outer form)))
 
 (defn ppostwalk
   ""
   [f form]
-  (pwalk (partial ppostwalk f) f form))
+  (println "post " form)
+  (pwalk2 (partial ppostwalk f) f form))
 
 (defn make-meta
   ""

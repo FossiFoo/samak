@@ -5,7 +5,7 @@
             [samak.cli-repl :as repl]))
 
 (defn -main [& args]
-  (let [[to-store from-store] (storage/start! args)
-        f (first args)]
+  (prom/let [[to-store from-store] (storage/start! args)
+             f (first args)]
     (repl/start! [to-store from-store] f (rest args))
     ))

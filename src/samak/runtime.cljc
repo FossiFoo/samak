@@ -58,15 +58,17 @@
 (defn load-ast
   "loads an ast given by its entity id from the database"
   [rt id]
-  (helpers/ppostwalk (fn [form]
-                       (println "FORM" id form)
-                       (if-let [sub-id (when (and (map? form) (some #(= % (keys form)) [:db/id :samak.nodes/id]))
-                                         (or (:samak.nodes/id form) (:db/id form)))]
-                         (do
-                           (println "SUB" sub-id)
-                           (load-by-id rt sub-id))
-                         form))
-                     (load-by-id rt id)))
+  (p/let [ast (load-by-id rt id)]
+    (println "initial " id ast)
+    (helpers/ppostwalk (fn [form]
+                         (println "FORM " id  (type form) form)
+                         (if-let [sub-id (when (and (map? form) (some #(= % (keys form)) [:db/id :samak.nodes/id]))
+                                           (or (:samak.nodes/id form) (:db/id form)))]
+                           (p/do!
+                             (println "SUB " sub-id)
+                             (deref (load-by-id rt sub-id)))
+                           form))
+                       ast)))
 
 (defn cancel?
   ""

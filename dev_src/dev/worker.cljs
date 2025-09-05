@@ -4,6 +4,7 @@
             [cljs.reader :as edn]
             [metosin.transit.dates :as d]
             [samak.helpers :as helpers]
+            [samak.packet :as packet]
             [samak.worker :as worker])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
 
@@ -34,14 +35,14 @@
 (def json-reader (t/reader :json {:handlers d/readers}))
 (defn make-handler
   ""
-  [in init]
+  [in start]
   (fn
     [event]
     (let [before (helpers/now)
           data (t/read json-reader (.-data event))]
-      ;; (println "worker in" data)
+      (println "worker in" data)
       (if (= data :init)
-        (helpers/debounce init)
+        (helpers/debounce start)
         (put! in data))
       (worker/trace ::worker-in
                     (helpers/duration before (helpers/now))
@@ -57,7 +58,7 @@
     (handle-update loading)
     (handle-request out)
     (aset js/self "onmessage" (make-handler in #(worker/start-rt loading in out)))
-    (put! out {:target :bootstrap})
+    (put! out (packet/make-packet :samak.runtime/worker {:target :bootstrap}))
     ))
 
 ;; (bootstrap)

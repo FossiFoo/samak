@@ -254,15 +254,9 @@
                                                                                                             (api/key-fn :position)
                                                                                                             (api/key-fn :y)
                                                                                                             ])])]))
+])
 
-
-               ;; (defncall 'drag-reduce 'pipes/splitter
-               ;;   (api/fn-call (api/symbol '->)
-               ;;                [(api/vector [(api/key-fn :state) (api/key-fn :next)])
-               ;;                 (api/fn-call (api/symbol 'into) [(api/map {}) (api/symbol '_)]) ])
-               ;;   (api/map {}))
-
-
+(def oasis2   [
                ;; keyboard handling
 
                (defncall 'is-phase-up '->
@@ -789,7 +783,8 @@
 
                (defncall 'eval-state 'pipes/station (api/string "eval-state") ;; (api/keyword :oasis.spec/eval-state)
                  )])
-(def oasis2 [
+
+(def oasis3 [
               ;; commands
 
               (defncall 'editor-commands 'pipes/station (api/string "editor-commands"))
@@ -1004,7 +999,8 @@
                 ;; (api/fn-call (api/symbol 'incase) [(api/symbol 'is-mode-insert)
                 ;;                                    (api/symbol 'change-mark)])
                 )
-
+])
+(def oasis4 [
               ;; convert and layout nodes
 
               (defncall 'def-name 'str
@@ -4100,18 +4096,13 @@
   (into oasis-ui-defs (flatten oasis-ui-net)))
 
 (def network (concat [] oasis-core-net oasis-ui-net oasis-module-net oasis-render-net))
-(def oasis (into oasis1 (into oasis2 (into oasis-core-defs (into oasis-render-defs (into oasis-ui-defs oasis-module-defs))))))
+(def oasis (into oasis1 (into oasis2 (into oasis3 (into oasis4 (into oasis-core-defs (into oasis-render-defs (into oasis-ui-defs oasis-module-defs))))))))
 
 (defn start []
   (into oasis (flatten network)))
 
-;; (defn store [s]
-;;   (stores/persist-tree! s (map run/ oasis))
-;;   (stores/persist-tree! s (flatten network))
-;;   s)
-
 (defn store [s]
   (p/do! (run/store! s (map (partial run/rewrite-expression "oasis") oasis1))
-         (stores/persist-tree! s (flatten network))
+         ;; (stores/persist-tree! s (flatten network))
          ;; (run/store! s (flatten network))
          s))

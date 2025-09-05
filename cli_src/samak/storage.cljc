@@ -17,7 +17,7 @@
               [samak.runtime.stores :as stores]
               [samak.pipes :as pipes]
               [samak.packet :as packet]
-              ;; [samak.oasis :as oasis]
+              [samak.oasis :as oasis]
               )
     (:import java.io.ByteArrayOutputStream)]
    :cljs
@@ -49,6 +49,7 @@
 (def store (atom nil))
 (def out-chan (atom (chan 100)))
 (def c (atom [(pipes/sink (chan)) (pipes/source @out-chan)]))
+(def cb (atom {}))
 
 (defn transit-out [data]
   (let [out (ByteArrayOutputStream. 4096)
@@ -69,24 +70,37 @@
         (if (nil? bod)
           (http/send! channel {:status 404})
           (let [id (packet/get-id bod)
-                packet (packet/assert-type-content :samak.runtime/store bod)]
-            (a/tap (pipes/out-port out) from-store)
-            (go-loop []
-              (when-let [i (<! from-store)]
-                (println "root got" i)
-                (if (= (packet/get-id i) id)
-                  (do
-                    (println "root req resolve in" id "-" i)
-                    (http/send! channel (transit-out i))
-                    (a/untap (pipes/out-port out) from-store))
-                  (recur))))
-            (put! (pipes/in-port in) bod)))))))
+                packet (packet/assert-type-content :samak.runtime/store bod)
+                prom (p/deferred)]
+            (swap! cb assoc id prom)
+            (put! (pipes/in-port in) bod)
+            (deref (p/handle prom (fn [a e]
+                                    (if e
+                                      (http/send! channel {:status 500 :body e})
+                                      (http/send! channel (transit-out a)))
+                                    (println "root done" a e))))))))))
+
+(defn start-dispatch []
+  "Starts a dispatcher that listens to responses from the storage"
+  (let [[in out] @c
+        from-store (chan 100)
+        port (pipes/out-port out)]
+    (go-loop []
+      (let [i (<! from-store)]
+        (if (nil? i)
+          (a/untap (pipes/out-port out) from-store)
+          (do
+            (when-let [prom (get @cb (packet/get-id i))]
+              (p/resolve! prom i))
+            (recur)))))
+    (a/tap port from-store)))
 
 (defn start! [& args]
-  (reset! store (stores/make-local-store "root"))
-  (stores/load-builtins! @store (keys builtins))
-  ;; (oasis/store @store)
-  (let [[in out] @c]
-    (stores/serve-store @store (pipes/in-port in) @out-chan "root")
+  (p/let [store (stores/make-local-store "root")
+          [in out] @c]
+    (stores/load-builtins! store (keys builtins))
+    ;; (oasis/store store)
+    (stores/serve-store store (pipes/in-port in) @out-chan "root")
+    (start-dispatch)
     (http/run-server async-handler {:port 8888})
     [in out]))

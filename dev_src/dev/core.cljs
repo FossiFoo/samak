@@ -55,25 +55,26 @@
   (fn
     [event]
     (let [data (t/read json-reader (.-data event))]
-      ;; (println "recv from w" data)
-      (condp = (:target data)
-        :load (put! load (:data data))
-        :bootstrap (put! to-worker :init)
-        (if (= (:samak.runtime/type data) :samak.runtime/store)
-          (go-loop []
-            (let [res (<! (http/post "/api" {:transit-params data}))
-                  b (:body res)]
-              (if (= 200 (:status res))
-                (put! to-worker (t/read json-reader (:body res)))
-                (recur))))
-          (put! to-main data))))))
+      (println "recv from w" data)
+      (condp = (packet/get-type data)
+        :samak.runtime/worker (let [c (packet/get-type-content :samak.runtime/worker data)]
+                                (if (= (:target c) :bootstrap)
+                                  (put! to-worker :init)
+                                  (put! load (:data c))))
+        :samak.runtime/store (go-loop []
+                               (let [res (<! (http/post "/api" {:transit-params data}))
+                                     b (:body res)]
+                                 (if (= 200 (:status res))
+                                   (put! to-worker (t/read json-reader (:body res)))
+                                   (recur))))
+        (put! to-main data)))))
 
 (defn handle-broadcasts [from-main to-worker to-main]
   (let [c (chan)]
     (a/tap from-main c)
     (go-loop []
       (let [p (<! c)]
-        ;; (println "broadcast" p (packet/get-type p))
+        (println "broadcast" p (packet/get-type p))
         (condp = (packet/get-type p)
           :samak.runtime/store (let [res (<! (http/post "/api" {:transit-params p}))]
                                  (if (= (:status res) 200)
